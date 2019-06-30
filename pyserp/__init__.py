@@ -1,7 +1,10 @@
-import collections
-import inspect
 import functools
+import inspect
 import typing
+
+
+class InjectionError(Exception):
+    pass
 
 
 class Injector:
@@ -11,19 +14,21 @@ class Injector:
 
     def inject(self, cbl: typing.Callable[..., typing.Any]):
         """Mark a callable to have it's arguments auto wired"""
-        injected = collections.OrderedDict()
-        items: typing.Iterable[
-            typing.Tuple[str, inspect.Parameter]
-        ] = inspect.signature(cbl).parameters.items()
-        for name, param in items:
-            provided = self._services.get(param.annotation)
-            if provided:
-                injected[name] = provided
+        arguments: typing.Mapping[
+            str, inspect.Parameter
+        ] = inspect.signature(cbl).parameters
 
         # TODO: support positional arguments
         @functools.wraps(cbl)
         def wrapper(**kwargs):
-            return cbl(**{**injected, **kwargs})
+            for name, param in arguments.items():
+                if name not in kwargs:
+                    try:
+                        kwargs[name] = self._services[param.annotation]
+                    except KeyError as e:
+                        raise InjectionError(
+                            f"Argument '{name}' is not injected") from e
+            return cbl(**kwargs)
 
         return wrapper
 
