@@ -8,8 +8,11 @@ class InjectionError(Exception):
 
 
 class Injector:
-    def __init__(self, package: str = ''):
-        self._package = package
+    def __init__(self, name: str = '',
+                 parent: typing.Optional['Injector'] = None):
+        self._name = name
+        self._parent = parent
+        self._children: typing.MutableMapping[str, Injector] = {}
         self._services = {}
 
     def inject(self, cbl: typing.Callable[..., typing.Any]):
@@ -40,8 +43,27 @@ class Injector:
         injected_cbl = self.inject(cbl)
         self._services[provided] = injected_cbl()
 
+    def get_child(self, name: str) -> 'Injector':
+        """Get or create a child-scoped injector
+        :param name: comma-separated name to build a scope tree on
+        """
+        inj = self
+        for name_part in name.split('.'):
+            child = inj._children.get(name_part)
+            if child is None:
+                child = inj._children[name_part] = Injector(name_part, inj)
+            inj = child
+        return inj
 
-_default = Injector()
 
-inject = _default.inject
-provide = _default.provide
+def get_injector(name: str) -> Injector:
+    """Build scoped injector
+    :param name: comma-separated name to build a scope tree on
+    """
+    return _root.get_child(name)
+
+
+_root = Injector()
+
+inject = _root.inject
+provide = _root.provide
