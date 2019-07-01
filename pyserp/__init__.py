@@ -7,63 +7,142 @@ class InjectionError(Exception):
     pass
 
 
+_CR_TV = typing.TypeVar('_CR_TV')
+
+
+class Consumer:
+    """Wrapper for callable that substitutes it's missing arguments"""
+
+    def __init__(self, cbl: typing.Callable[..., _CR_TV], inj: 'Injector'):
+        self._callable = cbl
+        self._injector = inj
+        self._signature = inspect.signature(self._callable)
+        self._parameters: typing.Mapping[
+            str, inspect.Parameter] = self._signature.parameters
+        functools.update_wrapper(self, cbl)
+
+    def __call__(self, **kwargs) -> _CR_TV:
+        # TODO: support positional arguments
+        for name, param in self._parameters.items():
+            if name not in kwargs:
+                kwargs[name] = self._injector.get_provided(param.annotation)
+        return self._callable(**kwargs)
+
+
+_PR_TV = typing.TypeVar('_PR_TV')
+
+
+class Provider:
+    """An abstract provider"""
+
+    def __init__(self, cbl: typing.Callable[[], _PR_TV]):
+        self._callable = cbl
+        # Calls for `inspect.signature` are cached
+        self._signature = inspect.signature(self._callable)
+        self._return_annotation = self._signature.return_annotation
+
+    @property
+    def provides(self) -> typing.Any:
+        return self._return_annotation
+
+    def provide(self) -> _PR_TV:
+        raise NotImplementedError()
+
+
+class SingletonProvider(Provider):
+    """Provider of the same object for every call"""
+
+    def __init__(self, cbl: typing.Callable[[], _PR_TV]):
+        super().__init__(cbl)
+        self._provided = self._callable()
+
+    def provide(self) -> _PR_TV:
+        return self._provided
+
+
+class FactoryProvider(Provider):
+    """Provider of a new object for every call"""
+
+    def provide(self) -> _PR_TV:
+        return self._callable()
+
+
 class Injector:
-    def __init__(self, name: str = '',
-                 parent: typing.Optional['Injector'] = None):
+    """The Injector. Registers providers and binds them to consumers"""
+
+    def __init__(
+            self, name: str = '',
+            parent: typing.Optional['Injector'] = None):
+        """Do not create instances manually. Use pyserp.get_injector()"""
         self._name = name
         self._parent = parent
         self._children: typing.MutableMapping[str, Injector] = {}
-        self._services = {}
+        self._services: typing.MutableMapping[typing.Any, Provider] = {}
 
-    def inject(self, cbl: typing.Callable[..., typing.Any]):
-        """Mark a callable to have it's arguments auto wired"""
-        arguments: typing.Mapping[
-            str, inspect.Parameter
-        ] = inspect.signature(cbl).parameters
+    def consumer(
+            self, cbl: typing.Union[typing.Callable[..., typing.Any], Consumer]
+    ) -> Consumer:
+        """Wrap a callable to have it's arguments auto wired"""
+        if isinstance(cbl, Consumer):
+            return cbl
+        return Consumer(cbl, self)
 
-        # TODO: support positional arguments
-        @functools.wraps(cbl)
-        def wrapper(**kwargs):
-            for name, param in arguments.items():
-                if name not in kwargs:
-                    try:
-                        kwargs[name] = self._services[param.annotation]
-                    except KeyError as e:
-                        raise InjectionError(
-                            f"Argument '{name}' is not injected") from e
-            return cbl(**kwargs)
+    def provider(self, cbl: typing.Callable[..., typing.Any]) -> Consumer:
+        """Wrap a callable into a Consumer and inject it's return value further
+            as a singleton"""
+        cons = self.consumer(cbl)
+        prov = SingletonProvider(cons)
+        self._services[prov.provides] = prov
+        return cons
 
-        return wrapper
-
-    def provide(self, cbl: typing.Callable[..., typing.Any]):
-        """Mark a callable to use it's return value
-            as a singleton to inject further"""
-        sig = inspect.signature(cbl)
-        provided = sig.return_annotation
-        injected_cbl = self.inject(cbl)
-        self._services[provided] = injected_cbl()
+    def factory(self, cbl: typing.Callable[..., typing.Any]) -> Consumer:
+        """Wrap a callable into a Consumer and inject it's return value further
+            by calling it every time"""
+        cons = self.consumer(cbl)
+        prov = FactoryProvider(cons)
+        self._services[prov.provides] = prov
+        return cons
 
     def get_child(self, name: str) -> 'Injector':
         """Get or create a child-scoped injector
         :param name: comma-separated name to build a scope tree on
         """
-        inj = self
+        inj: Injector = self
         for name_part in name.split('.'):
-            child = inj._children.get(name_part)
+            child: typing.Optional[Injector] = inj._children.get(name_part)
             if child is None:
                 child = inj._children[name_part] = Injector(name_part, inj)
             inj = child
         return inj
 
+    def _get_provider(self, annotation: typing.Any) -> Provider:
+        """Get a provider for annotation"""
+        prov = self._services.get(annotation)
+        if not prov:
+            # Get provider from parent and cache in self
+            if not self._parent:
+                raise InjectionError(
+                    f"Annotation '{annotation}' has no provider")
+            prov = self._services[annotation] = \
+                self._parent._get_provider(annotation)
+        return prov
 
-def get_injector(name: str) -> Injector:
+    def get_provided(self, annotation: typing.Any) -> typing.Any:
+        """Get a provided value for annotation"""
+        return self._get_provider(annotation).provide()
+
+
+def get_injector(name: str = '') -> Injector:
     """Build scoped injector
     :param name: comma-separated name to build a scope tree on
     """
-    return _root.get_child(name)
+    if name == '':
+        return root
+    return root.get_child(name)
 
 
-_root = Injector()
+root = Injector()
 
-inject = _root.inject
-provide = _root.provide
+consumer = root.consumer
+provider = root.provider
+factory = root.factory

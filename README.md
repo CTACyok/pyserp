@@ -18,7 +18,7 @@ class B:
     def __init__(self):
         print('CREATED B')
 
-@pyserp.provide
+@pyserp.provider
 def bean() -> A:
     print('PROVIDE A')
     a = A()
@@ -29,7 +29,7 @@ def bean() -> A:
 # CREATED A
 # <__main__.A object at 0x7f9a020935f8>
 
-@pyserp.inject
+@pyserp.consumer
 def consumer_a_b(a: A, b: B):
     print("CONSUME A")
     print(a)
