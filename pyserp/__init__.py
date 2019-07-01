@@ -77,7 +77,7 @@ class Injector:
         self._name = name
         self._parent = parent
         self._children: typing.MutableMapping[str, Injector] = {}
-        self._services: typing.MutableMapping[typing.Any, Provider] = {}
+        self._providers: typing.MutableMapping[typing.Any, Provider] = {}
 
     def consumer(
             self, cbl: typing.Union[typing.Callable[..., typing.Any], Consumer]
@@ -92,7 +92,7 @@ class Injector:
             as a singleton"""
         cons = self.consumer(cbl)
         prov = SingletonProvider(cons)
-        self._services[prov.provides] = prov
+        self._providers[prov.provides] = prov
         return cons
 
     def factory(self, cbl: typing.Callable[..., typing.Any]) -> Consumer:
@@ -100,7 +100,7 @@ class Injector:
             by calling it every time"""
         cons = self.consumer(cbl)
         prov = FactoryProvider(cons)
-        self._services[prov.provides] = prov
+        self._providers[prov.provides] = prov
         return cons
 
     def get_child(self, name: str) -> 'Injector':
@@ -117,13 +117,13 @@ class Injector:
 
     def _get_provider(self, annotation: typing.Any) -> Provider:
         """Get a provider for annotation"""
-        prov = self._services.get(annotation)
+        prov = self._providers.get(annotation)
         if not prov:
             # Get provider from parent and cache in self
             if not self._parent:
                 raise InjectionError(
                     f"Annotation '{annotation}' has no provider")
-            prov = self._services[annotation] = \
+            prov = self._providers[annotation] = \
                 self._parent._get_provider(annotation)
         return prov
 
