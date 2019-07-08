@@ -26,7 +26,7 @@ def test_default(injector):
     call_counter = {'provider': 0, 'factory': 0}
 
     @injector.consumer
-    def consumer_a_b_c(a_: A, b_: B, c_: C):
+    def consumer_a_b_c(b_: B, a_: A, c_: C):
         assert a_ is a
         assert b_ is b
         assert c_ is c
@@ -41,9 +41,10 @@ def test_default(injector):
         call_counter['factory'] += 1
         return c
 
+    consumer_a_b_c(b)
     consumer_a_b_c(b_=b)
-    consumer_a_b_c(b_=b)
-    consumer_a_b_c(a_=a, b_=b, c_=c)
+    consumer_a_b_c(b, a, c)
+    consumer_a_b_c(b, c_=c)
     assert call_counter['provider'] == 1
     assert call_counter['factory'] == 2
 

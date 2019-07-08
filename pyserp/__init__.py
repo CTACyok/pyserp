@@ -17,25 +17,21 @@ class Consumer:
         self._parameters: typing.Mapping[str, inspect.Parameter] = self._signature.parameters
         functools.update_wrapper(self, cbl)
 
-    def __call__(self, **kwargs) -> typing.Any:
-        # TODO: support positional arguments
-        raise NotImplementedError()
-
-
-class SyncConsumer(Consumer):
-    def __call__(self, **kwargs):
+    def __call__(self, *args, **kwargs):
+        arguments = self._signature.bind_partial(*args, **kwargs).arguments
         for name, param in self._parameters.items():
-            if name not in kwargs:
-                kwargs[name] = self._injector.get_provided(param.annotation)
-        return self._callable(**kwargs)
+            if name not in arguments:
+                arguments[name] = self._injector.get_provided(param.annotation)
+        return self._callable(**arguments)
 
 
 class AsyncConsumer(Consumer):
-    async def __call__(self, **kwargs):
+    async def __call__(self, *args, **kwargs):
+        arguments = self._signature.bind_partial(*args, **kwargs).arguments
         for name, param in self._parameters.items():
-            if name not in kwargs:
-                kwargs[name] = await self._injector.get_provided(param.annotation)
-        return await self._callable(**kwargs)
+            if name not in arguments:
+                arguments[name] = await self._injector.get_provided(param.annotation)
+        return await self._callable(**arguments)
 
 
 class Provider:
