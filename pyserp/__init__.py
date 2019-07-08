@@ -14,8 +14,7 @@ class Consumer:
         self._callable = cbl
         self._injector = inj
         self._signature = inspect.signature(self._callable)
-        self._parameters: typing.Mapping[
-            str, inspect.Parameter] = self._signature.parameters
+        self._parameters: typing.Mapping[str, inspect.Parameter] = self._signature.parameters
         functools.update_wrapper(self, cbl)
 
     def __call__(self, **kwargs) -> typing.Any:
@@ -35,8 +34,7 @@ class AsyncConsumer(Consumer):
     async def __call__(self, **kwargs):
         for name, param in self._parameters.items():
             if name not in kwargs:
-                kwargs[name] = await self._injector.get_provided(
-                    param.annotation)
+                kwargs[name] = await self._injector.get_provided(param.annotation)
         return await self._callable(**kwargs)
 
 
@@ -181,8 +179,7 @@ class Injector:
             if not self._parent:
                 raise InjectionError(
                     f"Annotation '{annotation}' has no provider")
-            prov = self._providers[annotation] = \
-                self._parent._get_provider(annotation)
+            prov = self._providers[annotation] = self._parent._get_provider(annotation)
         return prov
 
     def get_provided(self, annotation: typing.Any) -> typing.Any:
