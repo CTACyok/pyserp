@@ -19,12 +19,12 @@ class Consumer:
         functools.update_wrapper(self, cbl)
 
     def __call__(self, **kwargs) -> typing.Any:
+        # TODO: support positional arguments
         raise NotImplementedError()
 
 
 class SyncConsumer(Consumer):
     def __call__(self, **kwargs):
-        # TODO: support positional arguments
         for name, param in self._parameters.items():
             if name not in kwargs:
                 kwargs[name] = self._injector.get_provided(param.annotation)
@@ -32,11 +32,7 @@ class SyncConsumer(Consumer):
 
 
 class AsyncConsumer(Consumer):
-    def __init__(self, cbl, inj: 'Injector'):
-        super().__init__(cbl, inj)
-
     async def __call__(self, **kwargs):
-        # TODO: support positional arguments
         for name, param in self._parameters.items():
             if name not in kwargs:
                 kwargs[name] = await self._injector.get_provided(
@@ -143,6 +139,7 @@ class Injector:
         """Wrap a callable into a Consumer and inject it's return value further
             as a singleton"""
         cons = self.consumer(cbl)
+        # noinspection PyUnusedLocal
         prov: Provider
         if inspect.iscoroutinefunction(cbl):
             prov = SingletonAsyncProvider(cons)
@@ -155,6 +152,7 @@ class Injector:
         """Wrap a callable into a Consumer and inject it's return value further
             by calling it every time"""
         cons = self.consumer(cbl)
+        # noinspection PyUnusedLocal
         prov: Provider
         if inspect.iscoroutinefunction(cbl):
             prov = FactoryAsyncProvider(cons)
