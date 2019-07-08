@@ -7,13 +7,10 @@ class InjectionError(Exception):
     pass
 
 
-_CR_TV = typing.TypeVar('_CR_TV')
-
-
 class Consumer:
     """Wrapper for callable that substitutes it's missing arguments"""
 
-    def __init__(self, cbl: typing.Callable[..., _CR_TV], inj: 'Injector'):
+    def __init__(self, cbl, inj: 'Injector'):
         self._callable = cbl
         self._injector = inj
         self._signature = inspect.signature(self._callable)
@@ -21,7 +18,12 @@ class Consumer:
             str, inspect.Parameter] = self._signature.parameters
         functools.update_wrapper(self, cbl)
 
-    def __call__(self, **kwargs) -> _CR_TV:
+    def __call__(self, **kwargs) -> typing.Any:
+        raise NotImplementedError()
+
+
+class SyncConsumer(Consumer):
+    def __call__(self, **kwargs):
         # TODO: support positional arguments
         for name, param in self._parameters.items():
             if name not in kwargs:
@@ -29,13 +31,23 @@ class Consumer:
         return self._callable(**kwargs)
 
 
-_PR_TV = typing.TypeVar('_PR_TV')
+class AsyncConsumer(Consumer):
+    def __init__(self, cbl, inj: 'Injector'):
+        super().__init__(cbl, inj)
+
+    async def __call__(self, **kwargs):
+        # TODO: support positional arguments
+        for name, param in self._parameters.items():
+            if name not in kwargs:
+                kwargs[name] = await self._injector.get_provided(
+                    param.annotation)
+        return await self._callable(**kwargs)
 
 
 class Provider:
     """An abstract provider"""
 
-    def __init__(self, cbl: typing.Callable[[], _PR_TV]):
+    def __init__(self, cbl):
         self._callable = cbl
         # Calls for `inspect.signature` are cached
         self._signature = inspect.signature(self._callable)
@@ -45,26 +57,64 @@ class Provider:
     def provides(self) -> typing.Any:
         return self._return_annotation
 
-    def provide(self) -> _PR_TV:
+    def provide(self):
         raise NotImplementedError()
 
 
-class SingletonProvider(Provider):
+class SyncProvider(Provider):
+    """An abstract provider"""
+
+    def provide(self):
+        raise NotImplementedError()
+
+
+class SingletonProvider(SyncProvider):
     """Provider of the same object for every call"""
+    __PLACEHOLDER = object()
 
-    def __init__(self, cbl: typing.Callable[[], _PR_TV]):
+    def __init__(self, cbl):
         super().__init__(cbl)
-        self._provided = self._callable()
+        self._provided = self.__PLACEHOLDER
 
-    def provide(self) -> _PR_TV:
+    def provide(self):
+        if self._provided is self.__PLACEHOLDER:
+            self._provided = self._callable()
         return self._provided
 
 
-class FactoryProvider(Provider):
+class FactoryProvider(SyncProvider):
     """Provider of a new object for every call"""
 
-    def provide(self) -> _PR_TV:
+    def provide(self):
         return self._callable()
+
+
+class AsyncProvider(Provider):
+    """An abstract provider"""
+
+    async def provide(self):
+        raise NotImplementedError()
+
+
+class SingletonAsyncProvider(AsyncProvider):
+    """Provider of the same object for every call"""
+    __PLACEHOLDER = object()
+
+    def __init__(self, cbl):
+        super().__init__(cbl)
+        self._provided = self.__PLACEHOLDER
+
+    async def provide(self):
+        if self._provided is self.__PLACEHOLDER:
+            self._provided = await self._callable()
+        return self._provided
+
+
+class FactoryAsyncProvider(AsyncProvider):
+    """Provider of a new object for every call"""
+
+    async def provide(self):
+        return await self._callable()
 
 
 class Injector:
@@ -85,13 +135,19 @@ class Injector:
         """Wrap a callable to have it's arguments auto wired"""
         if isinstance(cbl, Consumer):
             return cbl
+        if inspect.iscoroutinefunction(cbl):
+            return AsyncConsumer(cbl, self)
         return Consumer(cbl, self)
 
     def provider(self, cbl: typing.Callable[..., typing.Any]) -> Consumer:
         """Wrap a callable into a Consumer and inject it's return value further
             as a singleton"""
         cons = self.consumer(cbl)
-        prov = SingletonProvider(cons)
+        prov: Provider
+        if inspect.iscoroutinefunction(cbl):
+            prov = SingletonAsyncProvider(cons)
+        else:
+            prov = SingletonProvider(cons)
         self._providers[prov.provides] = prov
         return cons
 
@@ -99,7 +155,11 @@ class Injector:
         """Wrap a callable into a Consumer and inject it's return value further
             by calling it every time"""
         cons = self.consumer(cbl)
-        prov = FactoryProvider(cons)
+        prov: Provider
+        if inspect.iscoroutinefunction(cbl):
+            prov = FactoryAsyncProvider(cons)
+        else:
+            prov = FactoryProvider(cons)
         self._providers[prov.provides] = prov
         return cons
 
