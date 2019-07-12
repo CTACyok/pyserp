@@ -21,7 +21,7 @@ class Consumer:
         arguments = self._signature.bind_partial(*args, **kwargs).arguments
         for name, param in self._parameters.items():
             if name not in arguments:
-                arguments[name] = self._injector.get_provided(param.annotation)
+                arguments[name] = self._injector.get_provider(param.annotation).provide()
         return self._callable(**arguments)
 
 
@@ -30,7 +30,7 @@ class AsyncConsumer(Consumer):
         arguments = self._signature.bind_partial(*args, **kwargs).arguments
         for name, param in self._parameters.items():
             if name not in arguments:
-                arguments[name] = await self._injector.get_provided(param.annotation)
+                arguments[name] = await self._injector.get_provider(param.annotation).provide_async()
         return await self._callable(**arguments)
 
 
@@ -50,12 +50,18 @@ class Provider:
     def provide(self):
         raise NotImplementedError()
 
+    async def provide_async(self):
+        raise NotImplementedError()
+
 
 class SyncProvider(Provider):
     """An abstract provider"""
 
     def provide(self):
         raise NotImplementedError()
+
+    async def provide_async(self):
+        return self.provide()
 
 
 class SingletonProvider(SyncProvider):
@@ -82,7 +88,10 @@ class FactoryProvider(SyncProvider):
 class AsyncProvider(Provider):
     """An abstract provider"""
 
-    async def provide(self):
+    def provide(self):
+        raise InjectionError('Asynchronous provider can not be used synchronously')
+
+    async def provide_async(self):
         raise NotImplementedError()
 
 
@@ -94,7 +103,7 @@ class SingletonAsyncProvider(AsyncProvider):
         super().__init__(cbl)
         self._provided = self.__PLACEHOLDER
 
-    async def provide(self):
+    async def provide_async(self):
         if self._provided is self.__PLACEHOLDER:
             self._provided = await self._callable()
         return self._provided
@@ -103,7 +112,7 @@ class SingletonAsyncProvider(AsyncProvider):
 class FactoryAsyncProvider(AsyncProvider):
     """Provider of a new object for every call"""
 
-    async def provide(self):
+    async def provide_async(self):
         return await self._callable()
 
 
@@ -167,7 +176,7 @@ class Injector:
             inj = child
         return inj
 
-    def _get_provider(self, annotation: typing.Any) -> Provider:
+    def get_provider(self, annotation: typing.Any) -> Provider:
         """Get a provider for annotation"""
         prov = self._providers.get(annotation)
         if not prov:
@@ -175,12 +184,8 @@ class Injector:
             if not self._parent:
                 raise InjectionError(
                     f"Annotation '{annotation}' has no provider")
-            prov = self._providers[annotation] = self._parent._get_provider(annotation)
+            prov = self._providers[annotation] = self._parent.get_provider(annotation)
         return prov
-
-    def get_provided(self, annotation: typing.Any) -> typing.Any:
-        """Get a provided value for annotation"""
-        return self._get_provider(annotation).provide()
 
 
 def get_injector(name: str = '') -> Injector:

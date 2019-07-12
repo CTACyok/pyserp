@@ -50,6 +50,126 @@ async def test_default(injector):
 
 
 @pytest.mark.asyncio
+async def test_mixed_ap_sf(injector):
+    """Sync providers must be usable in async consumers"""
+    class A:
+        pass
+
+    class B:
+        pass
+
+    class C:
+        pass
+
+    a = A()
+    b = B()
+    c = C()
+    call_counter = {'provider': 0, 'factory': 0}
+
+    @injector.consumer
+    async def consumer_a_b_c(a_: A, b_: B, c_: C):
+        assert a_ is a
+        assert b_ is b
+        assert c_ is c
+
+    @injector.provider
+    async def bean() -> A:
+        call_counter['provider'] += 1
+        return a
+
+    @injector.factory
+    def fact() -> C:
+        call_counter['factory'] += 1
+        return c
+
+    await consumer_a_b_c(b_=b)
+    await consumer_a_b_c(b_=b)
+    await consumer_a_b_c(a_=a, b_=b, c_=c)
+    assert call_counter['provider'] == 1
+    assert call_counter['factory'] == 2
+
+
+@pytest.mark.asyncio
+async def test_mixed_sp_af(injector):
+    """Sync providers must be usable in async consumers"""
+    class A:
+        pass
+
+    class B:
+        pass
+
+    class C:
+        pass
+
+    a = A()
+    b = B()
+    c = C()
+    call_counter = {'provider': 0, 'factory': 0}
+
+    @injector.consumer
+    async def consumer_a_b_c(a_: A, b_: B, c_: C):
+        assert a_ is a
+        assert b_ is b
+        assert c_ is c
+
+    @injector.provider
+    def bean() -> A:
+        call_counter['provider'] += 1
+        return a
+
+    @injector.factory
+    async def fact() -> C:
+        call_counter['factory'] += 1
+        return c
+
+    await consumer_a_b_c(b_=b)
+    await consumer_a_b_c(b_=b)
+    await consumer_a_b_c(a_=a, b_=b, c_=c)
+    assert call_counter['provider'] == 1
+    assert call_counter['factory'] == 2
+
+
+@pytest.mark.asyncio
+async def test_ap_fails(injector):
+    """Async providers must not be usable in sync consumers"""
+    class A:
+        pass
+
+    a = A()
+
+    @injector.consumer
+    def consumer(a_: A):
+        assert a_ is a
+
+    @injector.provider
+    async def bean() -> A:
+        return a
+
+    with pytest.raises(pyserp.InjectionError):
+        consumer()
+
+
+@pytest.mark.asyncio
+async def test_af_fails(injector):
+    """Async providers must not be usable in sync consumers"""
+    class A:
+        pass
+
+    a = A()
+
+    @injector.consumer
+    def consumer(a_: A):
+        assert a_ is a
+
+    @injector.factory
+    async def factory() -> A:
+        return a
+
+    with pytest.raises(pyserp.InjectionError):
+        consumer()
+
+
+@pytest.mark.asyncio
 async def test_default_not_provided(injector):
     """Injector must throw an error for unresolved dependency"""
     class A:
