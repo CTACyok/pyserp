@@ -148,7 +148,11 @@ class Injector:
             prov = SingletonAsyncProvider(cons)
         else:
             prov = SingletonProvider(cons)
-        self._providers[prov.provides] = prov
+        if inspect.isclass(prov.provides):
+            for _cls in inspect.getmro(prov.provides):
+                self._providers[_cls] = prov
+        else:
+            self._providers[prov.provides] = prov
         return cons
 
     def factory(self, cbl: typing.Callable[..., typing.Any]) -> Consumer:
@@ -161,7 +165,11 @@ class Injector:
             prov = FactoryAsyncProvider(cons)
         else:
             prov = FactoryProvider(cons)
-        self._providers[prov.provides] = prov
+        if inspect.isclass(prov.provides):
+            for _cls in inspect.getmro(prov.provides):
+                self._providers[_cls] = prov
+        else:
+            self._providers[prov.provides] = prov
         return cons
 
     def get_child(self, name: str) -> 'Injector':

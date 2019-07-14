@@ -27,6 +27,7 @@ if __name__ == '__main__':
         ],
         tests_require=[
             'pytest',
+            'pytest-asyncio',
         ],
         test_suite='tests',
     )
