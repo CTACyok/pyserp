@@ -81,3 +81,35 @@ def test_root():
     assert pyserp.consumer.__self__ is root
     assert pyserp.provider.__self__ is root
     assert pyserp.factory.__self__ is root
+
+
+def test_method_consumer(injector):
+    """Methods must be mark-able as consumers"""
+    class A:
+        pass
+
+    a = A()
+
+    class B:
+        @injector.consumer
+        def __init__(self, a_: A):
+            self.a = a_
+
+        @injector.consumer
+        def get_a(self, a_: A):
+            return a_
+
+        @classmethod
+        @injector.consumer  # FIXME: make consumer mark-able above `@classmethod`
+        def static_get_a(cls, a_: A):
+            assert cls is B
+            return a_
+
+    @injector.provider
+    def bean() -> A:
+        return a
+
+    assert B().a is a
+
+    assert B().get_a() is a
+    assert B.static_get_a() is a

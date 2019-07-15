@@ -7,31 +7,32 @@ class InjectionError(Exception):
     pass
 
 
-class Consumer:
-    """Wrapper for callable that substitutes it's missing arguments"""
-
-    def __init__(self, cbl, inj: 'Injector'):
-        self._callable = cbl
-        self._injector = inj
-        self._signature = inspect.signature(self._callable)
-        self._parameters: typing.Mapping[str, inspect.Parameter] = self._signature.parameters
-        functools.update_wrapper(self, cbl)
-
-    def __call__(self, *args, **kwargs):
-        arguments = self._signature.bind_partial(*args, **kwargs).arguments
-        for name, param in self._parameters.items():
-            if name not in arguments:
-                arguments[name] = self._injector.get_provider(param.annotation).provide()
-        return self._callable(**arguments)
-
-
-class AsyncConsumer(Consumer):
-    async def __call__(self, *args, **kwargs):
-        arguments = self._signature.bind_partial(*args, **kwargs).arguments
-        for name, param in self._parameters.items():
-            if name not in arguments:
-                arguments[name] = await self._injector.get_provider(param.annotation).provide_async()
-        return await self._callable(**arguments)
+# Note to self: You can not wrap a method in class with method __call__,
+#   because argument 'self' of method is erased with instance of wrapper
+def _consumer_factory(cbl, inj: 'Injector'):
+    """Wrap callable to substitute it's missing arguments"""
+    if getattr(cbl, '__is_consumer__', False):
+        return cbl
+    signature = inspect.signature(cbl)
+    parameters: typing.Mapping[str, inspect.Parameter] = signature.parameters
+    if inspect.iscoroutinefunction(cbl):
+        @functools.wraps(cbl)
+        async def _decorator(*args, **kwargs):
+            arguments = signature.bind_partial(*args, **kwargs).arguments
+            for name, param in parameters.items():
+                if name not in arguments and param.annotation is not inspect.Parameter.empty:
+                    arguments[name] = await inj.get_provider(param.annotation).provide_async()
+            return await cbl(**arguments)
+    else:
+        @functools.wraps(cbl)
+        def _decorator(*args, **kwargs):
+            arguments = signature.bind_partial(*args, **kwargs).arguments
+            for name, param in parameters.items():
+                if name not in arguments and param.annotation is not inspect.Parameter.empty:
+                    arguments[name] = inj.get_provider(param.annotation).provide()
+            return cbl(**arguments)
+    setattr(_decorator, '__is_consumer__', True)
+    return _decorator
 
 
 class Provider:
@@ -128,17 +129,11 @@ class Injector:
         self._children: typing.MutableMapping[str, Injector] = {}
         self._providers: typing.MutableMapping[typing.Any, Provider] = {}
 
-    def consumer(
-            self, cbl: typing.Union[typing.Callable[..., typing.Any], Consumer]
-    ) -> Consumer:
+    def consumer(self, cbl: typing.Callable[..., typing.Any]):
         """Wrap a callable to have it's arguments auto wired"""
-        if isinstance(cbl, Consumer):
-            return cbl
-        if inspect.iscoroutinefunction(cbl):
-            return AsyncConsumer(cbl, self)
-        return Consumer(cbl, self)
+        return _consumer_factory(cbl, self)
 
-    def provider(self, cbl: typing.Callable[..., typing.Any]) -> Consumer:
+    def provider(self, cbl: typing.Callable[..., typing.Any]):
         """Wrap a callable into a Consumer and inject it's return value further
             as a singleton"""
         cons = self.consumer(cbl)
@@ -155,7 +150,7 @@ class Injector:
             self._providers[prov.provides] = prov
         return cons
 
-    def factory(self, cbl: typing.Callable[..., typing.Any]) -> Consumer:
+    def factory(self, cbl: typing.Callable[..., typing.Any]):
         """Wrap a callable into a Consumer and inject it's return value further
             by calling it every time"""
         cons = self.consumer(cbl)
