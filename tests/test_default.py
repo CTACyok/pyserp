@@ -113,3 +113,23 @@ def test_method_consumer(injector):
 
     assert B().get_a() is a
     assert B.static_get_a() is a
+
+
+def test_service(injector):
+    """Class mast be mark-able as a `service` - register it's constructor as provider"""
+    @injector.service
+    class A:
+        def __init__(self):
+            print(self)
+
+    @injector.service
+    class B:
+        def __init__(self, a: A):
+            self.a = a
+
+    @injector.consumer
+    def consume_and_return(a: A) -> A:
+        return a
+
+    # noinspection PyArgumentList
+    assert B().a is consume_and_return()

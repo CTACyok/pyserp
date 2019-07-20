@@ -1,9 +1,13 @@
+"""
+Experimental provider-consumer injection mechanism for python
+"""
 import functools
 import inspect
 import typing
 
 
 class InjectionError(Exception):
+    """General 'something-went-wrong' error"""
     pass
 
 
@@ -36,7 +40,23 @@ def _consumer_factory(cbl, inj: 'Injector'):
 
 
 class Provider:
-    """An abstract provider"""
+    """Common provider interface"""
+    @property
+    def provides(self) -> typing.Any:
+        """Property for provider to tell what it holds"""
+        raise NotImplementedError()
+
+    def provide(self):
+        """Provide a value in a synchronous matter"""
+        raise NotImplementedError()
+
+    async def provide_async(self):
+        """Provide a value in an asynchronous matter"""
+        raise NotImplementedError()
+
+
+class CallableProvider(Provider):
+    """An abstract callable-based provider"""
 
     def __init__(self, cbl):
         self._callable = cbl
@@ -55,7 +75,7 @@ class Provider:
         raise NotImplementedError()
 
 
-class SyncProvider(Provider):
+class SyncProvider(CallableProvider):
     """An abstract provider"""
 
     def provide(self):
@@ -86,7 +106,7 @@ class FactoryProvider(SyncProvider):
         return self._callable()
 
 
-class AsyncProvider(Provider):
+class AsyncProvider(CallableProvider):
     """An abstract provider"""
 
     def provide(self):
@@ -117,6 +137,27 @@ class FactoryAsyncProvider(AsyncProvider):
         return await self._callable()
 
 
+class Service(Provider):
+    """A synchronous singleton class-based provider"""
+    __PLACEHOLDER = object()
+
+    def __init__(self, cls: typing.Type[typing.Any]):
+        self._cls = cls
+        self._provided = self.__PLACEHOLDER
+
+    @property
+    def provides(self) -> typing.Any:
+        return self._cls
+
+    def provide(self):
+        if self._provided is self.__PLACEHOLDER:
+            self._provided = self._cls()
+        return self._provided
+
+    async def provide_async(self):
+        return self.provide()
+
+
 class Injector:
     """The Injector. Registers providers and binds them to consumers"""
 
@@ -138,7 +179,7 @@ class Injector:
             as a singleton"""
         cons = self.consumer(cbl)
         # noinspection PyUnusedLocal
-        prov: Provider
+        prov: CallableProvider
         if inspect.iscoroutinefunction(cbl):
             prov = SingletonAsyncProvider(cons)
         else:
@@ -155,7 +196,7 @@ class Injector:
             by calling it every time"""
         cons = self.consumer(cbl)
         # noinspection PyUnusedLocal
-        prov: Provider
+        prov: CallableProvider
         if inspect.iscoroutinefunction(cbl):
             prov = FactoryAsyncProvider(cons)
         else:
@@ -166,6 +207,14 @@ class Injector:
         else:
             self._providers[prov.provides] = prov
         return cons
+
+    def service(self, cls: typing.Type[typing.Any]) -> typing.Type[typing.Any]:
+        """Wrap a class to make it's constructor a provider"""
+        cls.__init__ = self.consumer(cls.__init__)
+        prov = Service(cls)
+        for _cls in inspect.getmro(prov.provides):
+            self._providers[_cls] = prov
+        return cls
 
     def get_child(self, name: str) -> 'Injector':
         """Get or create a child-scoped injector
